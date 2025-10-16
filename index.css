@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+```
+
+---
+
+## 📄 **ARCHIVO 9 de 9: src/App.jsx** (EL MÁS IMPORTANTE)
+
+**Guardar dentro de la carpeta "src"** como: `App.jsx`
+
+Para este archivo, ve al artefacto de SENTINELA arriba y haz click en **"Copiar"**. Luego pega todo ese código en el archivo `App.jsx`.
+
+Si no te deja copiar, dime y te lo doy completo aquí.
+
+---
+
+## ✅ **RESUMEN DE LO QUE DEBES TENER:**
+```
+sentinela-trading/
+├── package.json
+├── vite.config.js
+├── index.html
+├── vercel.json
+├── tailwind.config.js
+├── postcss.config.js
+└── src/
+    ├── App.jsx (copiar del artefacto)
+    ├── main.jsx
+    └── index.css
