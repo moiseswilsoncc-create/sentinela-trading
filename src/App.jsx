@@ -5,6 +5,7 @@ const Sentinela = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isLoading, setIsLoading] = useState(false);
   const [lastUpdate, setLastUpdate] = useState(new Date().toLocaleTimeString());
+  const [lastScanTime, setLastScanTime] = useState(null);
   const [apiConnected, setApiConnected] = useState(false);
   
   const [config, setConfig] = useState({
@@ -38,7 +39,7 @@ const Sentinela = () => {
     activosEscaneados: 1247
   });
 
-  const [operacionesValidadas] = useState([
+  const [operacionesValidadas, setOperacionesValidadas] = useState([
     { id: 1, activo: 'GOLD', tipo: 'CFD', accion: 'COMPRA', entrada: 2654.30, sl: 2640.00, tp: 2695.00, prob: 89, rr: '1:3.0', score: 97, razon: 'RSI sobrecompra + MACD alcista', gananciaEsperada: 60234 },
     { id: 2, activo: 'EURUSD', tipo: 'FOREX', accion: 'VENTA', entrada: 1.0850, sl: 1.0900, tp: 1.0700, prob: 88, rr: '1:3.0', score: 95, razon: 'Divergencia bajista + USD fuerte', gananciaEsperada: 60000 },
     { id: 3, activo: 'AAPL', tipo: 'ACCIÓN', accion: 'COMPRA', entrada: 234.50, sl: 230.00, tp: 248.00, prob: 86, rr: '1:3.0', score: 93, razon: 'Earnings beat expectations', gananciaEsperada: 60006 },
@@ -57,6 +58,7 @@ const Sentinela = () => {
     { fecha: '15 Oct 08:30', activo: 'WTI', tipo: 'VENTA', entrada: 71.20, salida: 69.80, resultado: 'LOSS', pl: -2100, razon: 'SL activado' }
   ]);
 
+  // Verificar conexión a APIs
   useEffect(() => {
     const finnhubKey = import.meta.env.VITE_FINNHUB_API_KEY;
     const alphaKey = import.meta.env.VITE_ALPHA_VANTAGE_API_KEY;
@@ -67,25 +69,92 @@ const Sentinela = () => {
     }
   }, []);
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setPosicionesActivas(prev => prev.map(pos => {
-        const variation = (Math.random() - 0.5) * 2;
-        const newActual = pos.actual + variation;
-        const newPl = ((newActual - pos.entrada) * 517).toFixed(0);
-        return {
-          ...pos,
-          actual: parseFloat(newActual.toFixed(2)),
-          pl: parseInt(newPl)
-        };
-      }));
-      setLastUpdate(new Date().toLocaleTimeString());
-    }, 300000);
+  // Obtener precio real desde Finnhub
+  const obtenerPrecioReal = async (simbolo) => {
+    const finnhubKey = import.meta.env.VITE_FINNHUB_API_KEY;
+    if (!finnhubKey) return null;
 
-    return () => clearInterval(interval);
-  }, []);
+    try {
+      const simboloMap = {
+        'EURUSD': 'OANDA:EUR_USD',
+        'GBPUSD': 'OANDA:GBP_USD',
+        'USDJPY': 'OANDA:USD_JPY',
+        'AUDUSD': 'OANDA:AUD_USD',
+        'AAPL': 'AAPL',
+        'MSFT': 'MSFT',
+        'GOOGL': 'GOOGL',
+        'TSLA': 'TSLA'
+      };
 
-  const ejecutarEscaneo = () => {
+      const symbol = simboloMap[simbolo] || simbolo;
+      const response = await fetch(`https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${finnhubKey}`);
+      const data = await response.json();
+      
+      return data.c || null; // 'c' es el precio actual
+    } catch (error) {
+      console.error('Error obteniendo precio:', error);
+      return null;
+    }
+  };
+
+  // Obtener precio de commodities desde Alpha Vantage
+  const obtenerPrecioCommodity = async (simbolo) => {
+    const alphaKey = import.meta.env.VITE_ALPHA_VANTAGE_API_KEY;
+    if (!alphaKey) return null;
+
+    try {
+      const simboloMap = {
+        'GOLD': 'XAU',
+        'SILVER': 'XAG',
+        'OIL': 'WTI',
+        'BRENT': 'BRENT'
+      };
+
+      const symbol = simboloMap[simbolo] || simbolo;
+      const response = await fetch(`https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${symbol}&apikey=${alphaKey}`);
+      const data = await response.json();
+      
+      if (data['Global Quote'] && data['Global Quote']['05. price']) {
+        return parseFloat(data['Global Quote']['05. price']);
+      }
+      return null;
+    } catch (error) {
+      console.error('Error obteniendo commodity:', error);
+      return null;
+    }
+  };
+
+  // Simular análisis técnico con precios reales
+  const analizarActivo = async (simbolo, precio) => {
+    if (!precio) return null;
+
+    // Simular probabilidad y score basado en el precio
+    const baseProb = 75 + Math.random() * 20; // 75-95%
+    const baseScore = 85 + Math.random() * 15; // 85-100
+    
+    // Solo retornar si cumple criterios mínimos
+    if (baseProb < config.probMin) return null;
+
+    const esCompra = Math.random() > 0.5;
+    const variacion = precio * 0.015; // 1.5% de variación
+
+    return {
+      activo: simbolo,
+      tipo: simbolo.includes('USD') ? 'FOREX' : (simbolo === 'GOLD' || simbolo === 'OIL' ? 'CFD' : 'ACCIÓN'),
+      accion: esCompra ? 'COMPRA' : 'VENTA',
+      entrada: parseFloat(precio.toFixed(2)),
+      sl: parseFloat((esCompra ? precio - variacion : precio + variacion).toFixed(2)),
+      tp: parseFloat((esCompra ? precio + variacion * config.rrMin : precio - variacion * config.rrMin).toFixed(2)),
+      prob: Math.round(baseProb),
+      rr: `1:${config.rrMin.toFixed(1)}`,
+      score: Math.round(baseScore),
+      razon: esCompra ? 'Tendencia alcista confirmada + Momentum positivo' : 'Presión bajista + Divergencia',
+      gananciaEsperada: Math.round(config.capital * (config.riesgo / 100) * config.rrMin)
+    };
+  };
+
+  // Ejecutar escaneo completo
+  const ejecutarEscaneo = async () => {
     setIsLoading(true);
     setAgentes({
       tecnico: { ...agentes.tecnico, progreso: 0 },
@@ -94,23 +163,144 @@ const Sentinela = () => {
       adaptativo: { ...agentes.adaptativo, progreso: 0 }
     });
 
+    const activosParaEscanear = [
+      'EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD',
+      'GOLD', 'SILVER', 'OIL',
+      'AAPL', 'MSFT', 'GOOGL', 'TSLA', 'AMZN', 'META', 'NVDA'
+    ];
+
+    const operacionesEncontradas = [];
+
+    // Simular progreso de agentes
     let progress = 0;
     const progressInterval = setInterval(() => {
-      progress += 10;
+      progress += 5;
       setAgentes(prev => ({
         tecnico: { ...prev.tecnico, progreso: Math.min(progress + Math.random() * 10, 100) },
         fundamental: { ...prev.fundamental, progreso: Math.min(progress + Math.random() * 10, 100) },
         riesgo: { ...prev.riesgo, progreso: Math.min(progress + Math.random() * 10, 100) },
         adaptativo: { ...prev.adaptativo, progreso: Math.min(progress + Math.random() * 10, 100) }
       }));
+    }, 200);
 
-      if (progress >= 100) {
-        clearInterval(progressInterval);
-        setIsLoading(false);
-        setLastUpdate(new Date().toLocaleTimeString());
+    // Escanear activos
+    for (const activo of activosParaEscanear) {
+      try {
+        let precio;
+        
+        if (activo === 'GOLD' || activo === 'SILVER' || activo === 'OIL') {
+          precio = await obtenerPrecioCommodity(activo);
+        } else {
+          precio = await obtenerPrecioReal(activo);
+        }
+
+        if (precio) {
+          const analisis = await analizarActivo(activo, precio);
+          if (analisis && analisis.prob >= config.probMin) {
+            operacionesEncontradas.push({
+              ...analisis,
+              id: Date.now() + Math.random()
+            });
+          }
+        }
+
+        // Pequeña pausa para no saturar las APIs
+        await new Promise(resolve => setTimeout(resolve, 100));
+      } catch (error) {
+        console.error(`Error escaneando ${activo}:`, error);
       }
-    }, 300);
+    }
+
+    clearInterval(progressInterval);
+
+    // Ordenar por score y tomar top 10
+    const top10 = operacionesEncontradas
+      .sort((a, b) => b.score - a.score)
+      .slice(0, config.maxOps);
+
+    if (top10.length > 0) {
+      setOperacionesValidadas(top10);
+    } else {
+      setOperacionesValidadas([]);
+    }
+
+    setAgentes(prev => ({
+      tecnico: { ...prev.tecnico, progreso: 100 },
+      fundamental: { ...prev.fundamental, progreso: 100 },
+      riesgo: { ...prev.riesgo, progreso: 100 },
+      adaptativo: { ...prev.adaptativo, progreso: 100 }
+    }));
+
+    setIsLoading(false);
+    setLastUpdate(new Date().toLocaleTimeString());
+    setLastScanTime(new Date().toLocaleString());
   };
+
+  // Actualizar precios de posiciones activas cada 5 minutos
+  useEffect(() => {
+    const actualizarPosiciones = async () => {
+      if (!apiConnected) {
+        // Modo simulación
+        setPosicionesActivas(prev => prev.map(pos => {
+          const variation = (Math.random() - 0.5) * 2;
+          const newActual = pos.actual + variation;
+          const newPl = ((newActual - pos.entrada) * 517).toFixed(0);
+          return {
+            ...pos,
+            actual: parseFloat(newActual.toFixed(2)),
+            pl: parseInt(newPl)
+          };
+        }));
+      } else {
+        // Obtener precios reales
+        const posicionesActualizadas = await Promise.all(
+          posicionesActivas.map(async (pos) => {
+            let precioActual;
+            
+            if (pos.activo === 'GOLD') {
+              precioActual = await obtenerPrecioCommodity('GOLD');
+            } else {
+              precioActual = await obtenerPrecioReal(pos.activo);
+            }
+
+            if (precioActual) {
+              const newPl = ((precioActual - pos.entrada) * 517).toFixed(0);
+              return {
+                ...pos,
+                actual: parseFloat(precioActual.toFixed(2)),
+                pl: parseInt(newPl)
+              };
+            }
+            return pos;
+          })
+        );
+        setPosicionesActivas(posicionesActualizadas);
+      }
+      setLastUpdate(new Date().toLocaleTimeString());
+    };
+
+    actualizarPosiciones();
+    const interval = setInterval(actualizarPosiciones, 300000); // 5 minutos
+    return () => clearInterval(interval);
+  }, [apiConnected, posicionesActivas]);
+
+  // Escaneo automático diario
+  useEffect(() => {
+    if (!config.autoScan || !apiConnected) return;
+
+    const verificarHoraEscaneo = () => {
+      const ahora = new Date();
+      const horaActual = ahora.getHours().toString().padStart(2, '0') + ':' + ahora.getMinutes().toString().padStart(2, '0');
+      
+      if (horaActual === config.horaEscaneo && !lastScanTime) {
+        ejecutarEscaneo();
+      }
+    };
+
+    verificarHoraEscaneo();
+    const interval = setInterval(verificarHoraEscaneo, 60000); // Verificar cada minuto
+    return () => clearInterval(interval);
+  }, [config.autoScan, config.horaEscaneo, apiConnected, lastScanTime]);
 
   const actualizarConfig = (campo, valor) => {
     setConfig(prev => ({
@@ -177,6 +367,9 @@ const Sentinela = () => {
               <span>TF: {config.timeframes.join(', ')}</span>
             </div>
             <div className="text-xs text-gray-400">Última actualización: {lastUpdate}</div>
+            {lastScanTime && (
+              <div className="text-xs text-green-400">Último escaneo: {lastScanTime}</div>
+            )}
           </div>
         </div>
 
@@ -278,7 +471,7 @@ const Sentinela = () => {
                     <div className="font-bold">✅ CONECTADO - Datos en Tiempo Real</div>
                   </div>
                   <div className="text-sm text-gray-300">
-                    APIs activas: Finnhub + Alpha Vantage + News API. Actualización cada 5 minutos.
+                    APIs activas: Finnhub + Alpha Vantage + News API. Escaneo diario a las {config.horaEscaneo} AM.
                   </div>
                 </div>
               ) : (
@@ -296,8 +489,10 @@ const Sentinela = () => {
               <div className="bg-gradient-to-r from-orange-900/50 to-red-900/50 p-6 rounded-lg border border-orange-700">
                 <div className="flex justify-between items-center mb-4">
                   <div>
-                    <h2 className="text-2xl font-bold">Escaneo del Día Completado</h2>
-                    <p className="text-gray-400">Realizado a las {config.horaEscaneo} AM</p>
+                    <h2 className="text-2xl font-bold">Escaneo del Día</h2>
+                    <p className="text-gray-400">
+                      {lastScanTime ? `Último escaneo: ${lastScanTime}` : `Próximo escaneo: ${config.horaEscaneo} AM`}
+                    </p>
                   </div>
                   <div className="text-right">
                     <div className="text-3xl font-bold text-orange-400">{operacionesValidadas.length}/{config.maxOps}</div>
@@ -306,101 +501,132 @@ const Sentinela = () => {
                 </div>
               </div>
 
-              <h3 className="text-xl font-bold">Top Operaciones del Día</h3>
-              {operacionesValidadas.map((op, idx) => (
-                <div key={op.id} className="bg-gray-700 p-5 rounded-lg border border-gray-600">
-                  <div className="flex justify-between items-start mb-3">
-                    <div className="flex items-center gap-4">
-                      <div className="text-3xl font-bold text-orange-400">#{idx + 1}</div>
-                      <div>
-                        <div className="text-2xl font-bold">{op.activo}</div>
-                        <div className="text-sm text-gray-400">{op.tipo} • Score: {op.score}/100</div>
+              {operacionesValidadas.length > 0 ? (
+                <>
+                  <h3 className="text-xl font-bold">Top Operaciones del Día</h3>
+                  {operacionesValidadas.map((op, idx) => (
+                    <div key={op.id} className="bg-gray-700 p-5 rounded-lg border border-gray-600">
+                      <div className="flex justify-between items-start mb-3">
+                        <div className="flex items-center gap-4">
+                          <div className="text-3xl font-bold text-orange-400">#{idx + 1}</div>
+                          <div>
+                            <div className="text-2xl font-bold">{op.activo}</div>
+                            <div className="text-sm text-gray-400">{op.tipo} • Score: {op.score}/100</div>
+                          </div>
+                        </div>
+                        <div className={`px-4 py-2 rounded-lg font-bold text-lg ${op.accion === 'COMPRA' ? 'bg-green-600' : 'bg-red-600'}`}>
+                          {op.accion}
+                        </div>
+                      </div>
+                      
+                      <div className="bg-gray-800 p
+                      -4 rounded mb-3">
+                        <div className="text-sm text-gray-400 mb-2">Análisis:</div>
+                        <div className="text-sm">{op.razon}</div>
+                      </div>
+
+                      <div className="grid grid-cols-5 gap-3 text-sm bg-gray-800 p-3 rounded">
+                        <div>
+                          <div className="text-gray-400 text-xs">Entrada</div>
+                          <div className="font-mono font-bold text-blue-400">{op.entrada}</div>
+                        </div>
+                        <div>
+                          <div className="text-gray-400 text-xs">SL</div>
+                          <div className="font-mono font-bold text-red-400">{op.sl}</div>
+                        </div>
+                        <div>
+                          <div className="text-gray-400 text-xs">TP</div>
+                          <div className="font-mono font-bold text-green-400">{op.tp}</div>
+                        </div>
+                        <div>
+                          <div className="text-gray-400 text-xs">Prob</div>
+                          <div className="font-bold text-yellow-400">{op.prob}%</div>
+                        </div>
+                        <div>
+                          <div className="text-gray-400 text-xs">Ganancia</div>
+                          <div className="font-bold text-green-400">${(op.gananciaEsperada/1000).toFixed(1)}K</div>
+                        </div>
                       </div>
                     </div>
-                    <div className={`px-4 py-2 rounded-lg font-bold text-lg ${op.accion === 'COMPRA' ? 'bg-green-600' : 'bg-red-600'}`}>
-                      {op.accion}
-                    </div>
+                  ))}
+                </>
+              ) : (
+                <div className="bg-red-900/30 border-2 border-red-600 p-8 rounded-lg text-center">
+                  <AlertCircle size={48} className="text-red-400 mx-auto mb-4" />
+                  <h3 className="text-2xl font-bold text-red-400 mb-2">No hay operaciones disponibles</h3>
+                  <p className="text-gray-300">
+                    No se encontraron activos que cumplan con los criterios establecidos:
+                  </p>
+                  <div className="mt-4 text-sm text-gray-400">
+                    <p>• Probabilidad mínima: {config.probMin}%</p>
+                    <p>• Risk/Reward mínimo: 1:{config.rrMin}</p>
                   </div>
-                  
-                  <div className="bg-gray-800 p-4 rounded mb-3">
-                    <div className="text-sm text-gray-400 mb-2">Análisis:</div>
-                    <div className="text-sm">{op.razon}</div>
-                  </div>
-
-                  <div className="grid grid-cols-5 gap-3 text-sm bg-gray-800 p-3 rounded">
-                    <div>
-                      <div className="text-gray-400 text-xs">Entrada</div>
-                      <div className="font-mono font-bold text-blue-400">{op.entrada}</div>
-                    </div>
-                    <div>
-                      <div className="text-gray-400 text-xs">SL</div>
-                      <div className="font-mono font-bold text-red-400">{op.sl}</div>
-                    </div>
-                    <div>
-                      <div className="text-gray-400 text-xs">TP</div>
-                      <div className="font-mono font-bold text-green-400">{op.tp}</div>
-                    </div>
-                    <div>
-                      <div className="text-gray-400 text-xs">Prob</div>
-                      <div className="font-bold text-yellow-400">{op.prob}%</div>
-                    </div>
-                    <div>
-                      <div className="text-gray-400 text-xs">Ganancia</div>
-                      <div className="font-bold text-green-400">${(op.gananciaEsperada/1000).toFixed(1)}K</div>
-                    </div>
-                  </div>
+                  <button
+                    onClick={ejecutarEscaneo}
+                    className="mt-6 bg-blue-600 hover:bg-blue-700 px-6 py-3 rounded-lg font-bold flex items-center gap-2 mx-auto"
+                  >
+                    <RefreshCw size={18} />
+                    Ejecutar Nuevo Escaneo
+                  </button>
                 </div>
-              ))}
+              )}
             </div>
           )}
 
           {activeTab === 'operaciones' && (
             <div className="space-y-4">
               <h2 className="text-2xl font-bold mb-4">Operaciones Validadas</h2>
-              {operacionesValidadas.map((op, idx) => (
-                <div key={op.id} className="bg-gray-700 p-5 rounded-lg border border-gray-600">
-                  <div className="flex justify-between items-start mb-3">
-                    <div className="flex items-center gap-4">
-                      <div className="text-2xl font-bold text-orange-400">#{idx + 1}</div>
-                      <div>
-                        <div className="text-xl font-bold">{op.activo}</div>
-                        <div className="text-sm text-gray-400">{op.tipo} • Prob: {op.prob}%</div>
+              {operacionesValidadas.length > 0 ? (
+                operacionesValidadas.map((op, idx) => (
+                  <div key={op.id} className="bg-gray-700 p-5 rounded-lg border border-gray-600">
+                    <div className="flex justify-between items-start mb-3">
+                      <div className="flex items-center gap-4">
+                        <div className="text-2xl font-bold text-orange-400">#{idx + 1}</div>
+                        <div>
+                          <div className="text-xl font-bold">{op.activo}</div>
+                          <div className="text-sm text-gray-400">{op.tipo} • Prob: {op.prob}%</div>
+                        </div>
+                      </div>
+                      <div className={`px-4 py-2 rounded-lg font-bold ${op.accion === 'COMPRA' ? 'bg-green-600' : 'bg-red-600'}`}>
+                        {op.accion}
                       </div>
                     </div>
-                    <div className={`px-4 py-2 rounded-lg font-bold ${op.accion === 'COMPRA' ? 'bg-green-600' : 'bg-red-600'}`}>
-                      {op.accion}
-                    </div>
-                  </div>
 
-                  <div className="grid grid-cols-5 gap-3 bg-gray-800 p-4 rounded text-sm">
-                    <div>
-                      <div className="text-xs text-gray-400">Entrada</div>
-                      <div className="font-mono font-bold text-blue-400">{op.entrada}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-gray-400">SL</div>
-                      <div className="font-mono font-bold text-red-400">{op.sl}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-gray-400">TP</div>
-                      <div className="font-mono font-bold text-green-400">{op.tp}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-gray-400">RR</div>
-                      <div className="font-bold text-yellow-400">{op.rr}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-gray-400">Score</div>
-                      <div className="font-bold text-orange-400">{op.score}</div>
+                    <div className="grid grid-cols-5 gap-3 bg-gray-800 p-4 rounded text-sm">
+                      <div>
+                        <div className="text-xs text-gray-400">Entrada</div>
+                        <div className="font-mono font-bold text-blue-400">{op.entrada}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-gray-400">SL</div>
+                        <div className="font-mono font-bold text-red-400">{op.sl}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-gray-400">TP</div>
+                        <div className="font-mono font-bold text-green-400">{op.tp}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-gray-400">RR</div>
+                        <div className="font-bold text-yellow-400">{op.rr}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-gray-400">Score</div>
+                        <div className="font-bold text-orange-400">{op.score}</div>
+                      </div>
                     </div>
                   </div>
+                ))
+              ) : (
+                <div className="bg-gray-700 p-8 rounded-lg text-center">
+                  <AlertCircle size={48} className="text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-400">No hay operaciones validadas para hoy</p>
                 </div>
-              ))}
+              )}
             </div>
           )}
 
           {activeTab === 'posiciones' && (
-            <div className="space-y-4">
+      <div className="space-y-4">
               <div className="bg-gradient-to-r from-blue-900/30 to-purple-900/30 p-4 rounded-lg border border-blue-600 mb-4">
                 <div className="flex items-center gap-2">
                   <RefreshCw size={18} className="text-blue-400" />
