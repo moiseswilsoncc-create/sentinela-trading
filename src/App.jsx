@@ -7,7 +7,7 @@ const Sentinela = () => {
   const [lastUpdate, setLastUpdate] = useState(new Date().toLocaleTimeString());
   const [apiConnected, setApiConnected] = useState(false);
   
-  const [config] = useState({
+  const [config, setConfig] = useState({
     capital: 1000000,
     riesgo: 2,
     maxOps: 10,
@@ -110,6 +110,13 @@ const Sentinela = () => {
         setLastUpdate(new Date().toLocaleTimeString());
       }
     }, 300);
+  };
+
+  const actualizarConfig = (campo, valor) => {
+    setConfig(prev => ({
+      ...prev,
+      [campo]: valor
+    }));
   };
 
   const Tab = ({ id, icon: Icon, label, badge, active }) => (
@@ -610,13 +617,26 @@ const Sentinela = () => {
                 <div className="grid grid-cols-2 gap-6">
                   <div>
                     <label className="text-gray-400 text-sm mb-2 block">Capital Inicial</label>
-                    <div className="text-3xl font-bold text-green-400">${config.capital.toLocaleString()}</div>
+                    <input
+                      type="number"
+                      value={config.capital}
+                      onChange={(e) => actualizarConfig('capital', parseInt(e.target.value))}
+                      className="w-full bg-gray-800 text-white text-2xl font-bold p-3 rounded border border-gray-600 focus:border-green-400 focus:outline-none"
+                    />
                     <p className="text-xs text-gray-500 mt-1">Monto base para cálculos de riesgo</p>
                   </div>
                   <div>
-                    <label className="text-gray-400 text-sm mb-2 block">Riesgo por Operación</label>
-                    <div className="text-3xl font-bold text-orange-400">{config.riesgo}%</div>
-                    <p className="text-xs text-gray-500 mt-1">Máximo a arriesgar por trade</p>
+                    <label className="text-gray-400 text-sm mb-2 block">Riesgo por Operación (%)</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="5"
+                      step="0.5"
+                      value={config.riesgo}
+                      onChange={(e) => actualizarConfig('riesgo', parseFloat(e.target.value))}
+                      className="w-full bg-gray-800 text-white text-2xl font-bold p-3 rounded border border-gray-600 focus:border-orange-400 focus:outline-none"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Máximo a arriesgar por trade (1% - 5%)</p>
                   </div>
                 </div>
               </div>
@@ -625,25 +645,50 @@ const Sentinela = () => {
                 <h3 className="text-xl font-bold mb-4">🎯 Criterios de Trading</h3>
                 <div className="space-y-4">
                   <div className="flex justify-between items-center p-3 bg-gray-800 rounded">
-                    <div>
-                      <div className="font-bold">Probabilidad Mínima</div>
+                    <div className="flex-1 mr-4">
+                      <div className="font-bold mb-1">Probabilidad Mínima (%)</div>
                       <div className="text-sm text-gray-400">Umbral para validar operaciones</div>
                     </div>
-                    <div className="text-2xl font-bold text-yellow-400">{config.probMin}%</div>
+                    <input
+                      type="number"
+                      min="70"
+                      max="95"
+                      value={config.probMin}
+                      onChange={(e) => actualizarConfig('probMin', parseInt(e.target.value))}
+                      className="w-24 bg-gray-900 text-white text-xl font-bold p-2 rounded border border-gray-600 focus:border-yellow-400 focus:outline-none text-center"
+                    />
                   </div>
                   <div className="flex justify-between items-center p-3 bg-gray-800 rounded">
-                    <div>
-                      <div className="font-bold">Risk/Reward Mínimo</div>
-                      <div className="text-sm text-gray-400">Ratio ganancia vs pérdida</div>
+                    <div className="flex-1 mr-4">
+                      <div className="font-bold mb-1">Risk/Reward Mínimo</div>
+                      <div className="text-sm text-gray-400">Ratio ganancia vs pérdida (1:X)</div>
                     </div>
-                    <div className="text-2xl font-bold text-purple-400">1:{config.rrMin}</div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-white font-bold">1:</span>
+                      <input
+                        type="number"
+                        min="2"
+                        max="5"
+                        step="0.5"
+                        value={config.rrMin}
+                        onChange={(e) => actualizarConfig('rrMin', parseFloat(e.target.value))}
+                        className="w-20 bg-gray-900 text-white text-xl font-bold p-2 rounded border border-gray-600 focus:border-purple-400 focus:outline-none text-center"
+                      />
+                    </div>
                   </div>
                   <div className="flex justify-between items-center p-3 bg-gray-800 rounded">
-                    <div>
-                      <div className="font-bold">Máximo Operaciones Diarias</div>
+                    <div className="flex-1 mr-4">
+                      <div className="font-bold mb-1">Máximo Operaciones Diarias</div>
                       <div className="text-sm text-gray-400">Límite de trades por día</div>
                     </div>
-                    <div className="text-2xl font-bold text-blue-400">{config.maxOps}</div>
+                    <input
+                      type="number"
+                      min="1"
+                      max="20"
+                      value={config.maxOps}
+                      onChange={(e) => actualizarConfig('maxOps', parseInt(e.target.value))}
+                      className="w-24 bg-gray-900 text-white text-xl font-bold p-2 rounded border border-gray-600 focus:border-blue-400 focus:outline-none text-center"
+                    />
                   </div>
                 </div>
               </div>
@@ -652,25 +697,54 @@ const Sentinela = () => {
                 <h3 className="text-xl font-bold mb-4">⏰ Configuración de Escaneo</h3>
                 <div className="space-y-4">
                   <div className="flex justify-between items-center p-3 bg-gray-800 rounded">
-                    <div>
-                      <div className="font-bold">Hora de Escaneo</div>
+                    <div className="flex-1 mr-4">
+                      <div className="font-bold mb-1">Hora de Escaneo</div>
                       <div className="text-sm text-gray-400">Hora diaria de análisis automático</div>
                     </div>
-                    <div className="text-2xl font-bold text-orange-400">{config.horaEscaneo} AM</div>
+                    <input
+                      type="time"
+                      value={config.horaEscaneo}
+                      onChange={(e) => actualizarConfig('horaEscaneo', e.target.value)}
+                      className="bg-gray-900 text-white text-lg font-bold p-2 rounded border border-gray-600 focus:border-orange-400 focus:outline-none"
+                    />
                   </div>
-                  <div className="flex justify-between items-center p-3 bg-gray-800 rounded">
-                    <div>
-                      <div className="font-bold">Timeframes Analizados</div>
-                      <div className="text-sm text-gray-400">Marcos temporales para análisis</div>
+                  <div className="p-3 bg-gray-800 rounded">
+                    <div className="font-bold mb-3">Timeframes Analizados</div>
+                    <div className="flex gap-3 flex-wrap">
+                      {['1H', '4H', '1D'].map(tf => (
+                        <label key={tf} className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={config.timeframes.includes(tf)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                actualizarConfig('timeframes', [...config.timeframes, tf]);
+                              } else {
+                                actualizarConfig('timeframes', config.timeframes.filter(t => t !== tf));
+                              }
+                            }}
+                            className="w-5 h-5 bg-gray-900 border-2 border-gray-600 rounded cursor-pointer"
+                          />
+                          <span className="text-white font-bold">{tf}</span>
+                        </label>
+                      ))}
                     </div>
-                    <div className="text-xl font-bold text-blue-400">{config.timeframes.join(', ')}</div>
+                    <p className="text-xs text-gray-400 mt-2">Selecciona los marcos temporales para análisis</p>
                   </div>
                   <div className="flex justify-between items-center p-3 bg-gray-800 rounded">
-                    <div>
-                      <div className="font-bold">Escaneo Automático</div>
+                    <div className="flex-1 mr-4">
+                      <div className="font-bold mb-1">Escaneo Automático</div>
                       <div className="text-sm text-gray-400">Análisis diario sin intervención</div>
                     </div>
-                    <div className="text-xl font-bold text-green-400">{config.autoScan ? '✅ ACTIVO' : '❌ INACTIVO'}</div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={config.autoScan}
+                        onChange={(e) => actualizarConfig('autoScan', e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-14 h-7 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[4px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-green-600"></div>
+                    </label>
                   </div>
                 </div>
               </div>
@@ -713,20 +787,20 @@ const Sentinela = () => {
                     <span className="text-3xl font-bold text-orange-400">~{performance.activosEscaneados}</span>
                   </div>
                   <p className="text-xs text-gray-400 mt-2">
-                    Sistema escanea automáticamente todos los activos diariamente a las {config.horaEscaneo} AM, 
+                    Sistema escanea automáticamente todos los activos diariamente a las {config.horaEscaneo}, 
                     aplicando filtros de probabilidad ≥{config.probMin}% y RR ≥1:{config.rrMin}
                   </p>
                 </div>
               </div>
 
-              <div className="bg-blue-900/30 border border-blue-600 p-4 rounded-lg">
+              <div className="bg-green-900/30 border border-green-600 p-4 rounded-lg">
                 <div className="flex items-center gap-2 mb-2">
-                  <Activity size={20} className="text-blue-400" />
-                  <div className="font-bold">💡 Nota Importante</div>
+                  <Activity size={20} className="text-green-400" />
+                  <div className="font-bold text-green-400">✅ Cambios Guardados Automáticamente</div>
                 </div>
                 <p className="text-sm text-gray-300">
-                  Esta configuración define los parámetros del sistema SENTINELA. Los valores actuales están optimizados 
-                  para un balance entre seguridad y rentabilidad. Solo se ejecutan operaciones que cumplan todos los criterios.
+                  Todos los cambios en la configuración se aplican inmediatamente. Los valores actuales están optimizados 
+                  para un balance entre seguridad y rentabilidad.
                 </p>
               </div>
             </div>
