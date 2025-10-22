@@ -331,8 +331,8 @@ const Sentinela = () => {
           }
         }
 
-        // Pausa para no saturar APIs
-        await new Promise(resolve => setTimeout(resolve, 200));
+        // Pausa más larga para Alpha Vantage (5 llamadas/min = 12 segundos entre llamadas)
+        await new Promise(resolve => setTimeout(resolve, simbolo.includes('USD') ? 13000 : 500));
       } catch (error) {
         console.error(`❌ Error escaneando ${activo}:`, error);
       }
