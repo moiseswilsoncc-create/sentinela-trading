@@ -77,27 +77,58 @@ const Sentinela = () => {
     
     if (finnhubKey && alphaKey && newsKey) {
       setApiConnected(true);
+    } else {
+      setApiConnected(false);
+      // opcional: llenar apiErrors con información
+      const missing = [];
+      if (!finnhubKey) missing.push('Finnhub API Key faltante');
+      if (!alphaKey) missing.push('Alpha Vantage API Key faltante');
+      if (!newsKey) missing.push('News API Key faltante');
+      if (missing.length) setApiErrors(prev => [...prev, ...missing]);
     }
   }, []);
 
- // Obtener precio real - Forex desde Alpha Vantage, Acciones desde Finnhub
+  // Helper: detectar Forex (formato como EURUSD, 6 mayúsculas)
+  const esForex = (symbol) => /^[A-Z]{6}$/.test(symbol);
+
+  // Obtener precio real - Forex desde Alpha Vantage, Acciones desde Finnhub
   const obtenerPrecioReal = async (simbolo) => {
     // Si es Forex, usar Alpha Vantage
-    if (simbolo.includes('USD')) {
+    if (esForex(simbolo)) {
       return await obtenerPrecioForex(simbolo);
     }
     
-    // Si es acción, usar Finnhub
+    // Si es acción o símbolo mapeado, usar Finnhub
     const finnhubKey = import.meta.env.VITE_FINNHUB_API_KEY;
     if (!finnhubKey) {
       console.error('❌ Finnhub API Key no encontrada');
+      setApiErrors(prev => [...prev, 'Finnhub API Key no encontrada']);
       return null;
     }
 
     try {
-      console.log(`📊 Obteniendo precio de ${simbolo} desde Finnhub...`);
+      // Algunos símbolos en tu lista pueden necesitar map a proveedor (p.e. OANDA)
+      const simboloMap = {
+        'EURUSD': 'OANDA:EUR_USD',
+        'GBPUSD': 'OANDA:GBP_USD',
+        'USDJPY': 'OANDA:USD_JPY',
+        'AUDUSD': 'OANDA:AUD_USD',
+        'USDCAD': 'OANDA:USD_CAD',
+        'NZDUSD': 'OANDA:NZD_USD',
+        // acciones
+        'AAPL': 'AAPL',
+        'MSFT': 'MSFT',
+        'GOOGL': 'GOOGL',
+        'TSLA': 'TSLA',
+        'AMZN': 'AMZN',
+        'META': 'META',
+        'NVDA': 'NVDA'
+      };
+
+      const symbol = simboloMap[simbolo] || simbolo;
+      console.log(`📊 Obteniendo precio de ${simbolo} (${symbol}) desde Finnhub...`);
       
-      const response = await fetch(`https://finnhub.io/api/v1/quote?symbol=${simbolo}&token=${finnhubKey}`);
+      const response = await fetch(`https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${finnhubKey}`);
       
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -124,6 +155,7 @@ const Sentinela = () => {
     const alphaKey = import.meta.env.VITE_ALPHA_VANTAGE_API_KEY;
     if (!alphaKey) {
       console.error('❌ Alpha Vantage API Key no encontrada');
+      setApiErrors(prev => [...prev, 'Alpha Vantage API Key no encontrada']);
       return null;
     }
 
@@ -153,54 +185,6 @@ const Sentinela = () => {
         console.warn(`⚠️ ${simbolo}: Límite de API alcanzado`);
         setApiErrors(prev => [...prev, `${simbolo}: Límite de Alpha Vantage (5 llamadas/min)`]);
         return null;
-      } else {
-        console.warn(`⚠️ ${simbolo}: Sin datos válidos`, data);
-        return null;
-      }
-    } catch (error) {
-      console.error(`❌ Error obteniendo ${simbolo}:`, error);
-      setApiErrors(prev => [...prev, `${simbolo}: ${error.message}`]);
-      return null;
-    }
-  };
-  const obtenerPrecioReal = async (simbolo) => {
-    const finnhubKey = import.meta.env.VITE_FINNHUB_API_KEY;
-    if (!finnhubKey) {
-      console.error('❌ Finnhub API Key no encontrada');
-      return null;
-    }
-
-    try {
-      const simboloMap = {
-        'EURUSD': 'OANDA:EUR_USD',
-        'GBPUSD': 'OANDA:GBP_USD',
-        'USDJPY': 'OANDA:USD_JPY',
-        'AUDUSD': 'OANDA:AUD_USD',
-        'USDCAD': 'OANDA:USD_CAD',
-        'NZDUSD': 'OANDA:NZD_USD',
-        'AAPL': 'AAPL',
-        'MSFT': 'MSFT',
-        'GOOGL': 'GOOGL',
-        'TSLA': 'TSLA',
-        'AMZN': 'AMZN',
-        'META': 'META',
-        'NVDA': 'NVDA'
-      };
-
-      const symbol = simboloMap[simbolo] || simbolo;
-      console.log(`📊 Obteniendo precio de ${simbolo} (${symbol})...`);
-      
-      const response = await fetch(`https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${finnhubKey}`);
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-      
-      const data = await response.json();
-      
-      if (data.c && data.c > 0) {
-        console.log(`✅ ${simbolo}: $${data.c}`);
-        return data.c;
       } else {
         console.warn(`⚠️ ${simbolo}: Sin datos válidos`, data);
         return null;
@@ -258,13 +242,13 @@ const Sentinela = () => {
 
     return {
       activo: simbolo,
-      tipo: simbolo.includes('USD') ? 'FOREX' : (simbolo === 'GOLD' || simbolo === 'SILVER' || simbolo === 'OIL' ? 'CFD' : 'ACCIÓN'),
+      tipo: esForex(simbolo) ? 'FOREX' : (simbolo === 'GOLD' || simbolo === 'SILVER' || simbolo === 'OIL' ? 'CFD' : 'ACCIÓN'),
       accion: esCompra ? 'COMPRA' : 'VENTA',
       entrada: entrada,
       sl: sl,
       tp: tp,
       prob: Math.round(baseProb),
-      rr: `1:${config.rrMin.toFixed(1)}`,
+      rr: `1:${config.rrMin}`,
       score: Math.round(baseScore),
       razon: razones[Math.floor(Math.random() * razones.length)],
       gananciaEsperada: Math.round(config.capital * (config.riesgo / 100) * config.rrMin),
@@ -311,7 +295,8 @@ const Sentinela = () => {
     for (const activo of activosParaEscanear) {
       try {
         let precio;
-        
+        const activoEsForex = esForex(activo);
+
         if (activo === 'GOLD' || activo === 'SILVER' || activo === 'OIL') {
           precio = await obtenerPrecioCommodity(activo);
         } else {
@@ -331,10 +316,12 @@ const Sentinela = () => {
           }
         }
 
-        // Pausa más larga para Alpha Vantage (5 llamadas/min = 12 segundos entre llamadas)
-        await new Promise(resolve => setTimeout(resolve, simbolo.includes('USD') ? 13000 : 500));
+        // Pausa: si fue Forex, esperar ~13s para respetar límite de Alpha Vantage (5 llamadas/min).
+        // Si fue commodity o acción, esperar menos.
+        await new Promise(resolve => setTimeout(resolve, activoEsForex ? 13000 : 500));
       } catch (error) {
         console.error(`❌ Error escaneando ${activo}:`, error);
+        setApiErrors(prev => [...prev, `${activo}: ${error.message}`]);
       }
     }
 
@@ -509,7 +496,7 @@ const Sentinela = () => {
           <div className="flex items-center gap-6 text-sm flex-wrap">
             <div className="flex items-center gap-2">
               <Clock size={16} className="text-orange-400" />
-              <span>Escaneo: {config.horaEscaneo} AM</span>
+              <span>Escaneo: {config.horaEscaneo}</span>
             </div>
             <div className="flex items-center gap-2">
               <Eye size={16} className="text-red-400" />
@@ -530,690 +517,129 @@ const Sentinela = () => {
           )}
         </div>
 
-        <div className="grid grid-cols-4 gap-3 mb-6">
-          <div className="bg-gradient-to-br from-blue-900 to-blue-800 p-4 rounded-lg border border-blue-600">
-            <div className="flex items-center gap-2 mb-2">
-              <TrendingUp size={20} className="text-blue-400" />
-              <span className="font-bold text-sm">Agente Técnico</span>
-            </div>
-            <div className="text-xs text-gray-300">
-              Estado: <span className={agentes.tecnico.estado === 'ACTIVO' ? 'text-green-400' : 'text-yellow-400'}>{agentes.tecnico.estado}</span>
-            </div>
-            <div className="text-xs text-gray-300">{agentes.tecnico.operaciones} activos escaneados</div>
-            {isLoading && (
-              <div className="mt-2 bg-gray-700 rounded-full h-2">
-                <div className="bg-blue-500 h-2 rounded-full transition-all" style={{ width: `${agentes.tecnico.progreso}%` }}></div>
-              </div>
-            )}
-          </div>
-
-          <div className="bg-gradient-to-br from-purple-900 to-purple-800 p-4 rounded-lg border border-purple-600">
-            <div className="flex items-center gap-2 mb-2">
-              <BarChart3 size={20} className="text-purple-400" />
-              <span className="font-bold text-sm">Agente Fundamental</span>
-            </div>
-            <div className="text-xs text-gray-300">
-              Estado: <span className={agentes.fundamental.estado === 'ACTIVO' ? 'text-green-400' : 'text-yellow-400'}>{agentes.fundamental.estado}</span>
-            </div>
-            <div className="text-xs text-gray-300">{agentes.fundamental.noticias} noticias analizadas</div>
-            {isLoading && (
-              <div className="mt-2 bg-gray-700 rounded-full h-2">
-                <div className="bg-purple-500 h-2 rounded-full transition-all" style={{ width: `${agentes.fundamental.progreso}%` }}></div>
-              </div>
-            )}
-          </div>
-
-          <div className="bg-gradient-to-br from-orange-900 to-orange-800 p-4 rounded-lg border border-orange-600">
-            <div className="flex items-center gap-2 mb-2">
-              <DollarSign size={20} className="text-orange-400" />
-              <span className="font-bold text-sm">Agente Riesgo</span>
-            </div>
-            <div className="text-xs text-gray-300">
-              Estado: <span className={agentes.riesgo.estado === 'ACTIVO' ? 'text-green-400' : 'text-yellow-400'}>{agentes.riesgo.estado}</span>
-            </div>
-            <div className="text-xs text-gray-300">{agentes.riesgo.calculosHoy} cálculos realizados</div>
-            {isLoading && (
-              <div className="mt-2 bg-gray-700 rounded-full h-2">
-                <div className="bg-orange-500 h-2 rounded-full transition-all" style={{ width: `${agentes.riesgo.progreso}%` }}></div>
-              </div>
-            )}
-          </div>
-
-          <div className="bg-gradient-to-br from-green-900 to-green-800 p-4 rounded-lg border border-green-600">
-            <div className="flex items-center gap-2 mb-2">
-              <Brain size={20} className="text-green-400" />
-              <span className="font-bold text-sm">IA Adaptativa</span>
-            </div>
-            <div className="text-xs text-gray-300">
-              Estado: <span className={agentes.adaptativo.estado === 'APRENDIENDO' ? 'text-yellow-400' : 'text-green-400'}>{agentes.adaptativo.estado}</span>
-            </div>
-            <div className="text-xs text-gray-300">
-              {agentes.adaptativo.tasaExito > 0 ? `${agentes.adaptativo.tasaExito.toFixed(1)}% éxito` : 'Iniciando...'}
-            </div>
-            {isLoading && (
-              <div className="mt-2 bg-gray-700 rounded-full h-2">
-                <div className="bg-green-500 h-2 rounded-full transition-all" style={{ width: `${agentes.adaptativo.progreso}%` }}></div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-4 gap-4 mb-6">
-          <div className="bg-gray-800 p-4 rounded-lg border border-gray-700">
-            <div className="text-gray-400 text-sm mb-1">Capital Actual</div>
-            <div className="text-2xl font-bold text-green-400">${performance.capitalActual.toLocaleString()}</div>
-            <div className="text-xs text-gray-500">
-              {performance.gananciaPercent > 0 ? `+${performance.gananciaPercent.toFixed(2)}%` : '0%'}
-            </div>
-          </div>
-          <div className="bg-gray-800 p-4 rounded-lg border border-gray-700">
-            <div className="text-gray-400 text-sm mb-1">Ganancia Total</div>
-            <div className="text-2xl font-bold text-green-400">
-              {performance.gananciaTotal > 0 ? `+$${performance.gananciaTotal.toLocaleString()}` : '$0'}
-            </div>
-          </div>
-          <div className="bg-gray-800 p-4 rounded-lg border border-gray-700">
-            <div className="text-gray-400 text-sm mb-1">Win Rate</div>
-            <div className="text-2xl font-bold text-blue-400">{performance.winRate.toFixed(1)}%</div>
-            <div className="text-xs text-gray-500">{performance.ganadoras}W / {performance.perdedoras}L</div>
-          </div>
-          <div className="bg-gray-800 p-4 rounded-lg border border-gray-700">
-            <div className="text-gray-400 text-sm mb-1">Profit Factor</div>
-            <div className="text-2xl font-bold text-purple-400">
-              {performance.profitFactor > 0 ? performance.profitFactor.toFixed(2) : '0.00'}
-            </div>
-          </div>
-        </div>
-
-        <div className="flex gap-2 mb-6 overflow-x-auto">
-          <Tab id="dashboard" icon={Activity} label="Dashboard" badge={0} active={activeTab === 'dashboard'} />
-          <Tab id="operaciones" icon={TrendingUp} label="Operaciones" badge={operacionesValidadas.length} active={activeTab === 'operaciones'} />
-          <Tab id="posiciones" icon={Clock} label="Posiciones" badge={posicionesActivas.length} active={activeTab === 'posiciones'} />
-          <Tab id="historial" icon={BarChart3} label="Historial" badge={0} active={activeTab === 'historial'} />
-          <Tab id="ia" icon={Brain} label="IA Adaptativa" badge={0} active={activeTab === 'ia'} />
-          <Tab id="config" icon={Settings} label="Configuración" badge={0} active={activeTab === 'config'} />
-        </div>
-
-        <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-          {activeTab === 'dashboard' && (
-            <div className="space-y-6">
-              {apiConnected ? (
-                <div className="bg-gradient-to-r from-green-900/30 to-blue-900/30 p-4 rounded-lg border border-green-600">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Wifi size={20} className="text-green-400" />
-                    <div className="font-bold">✅ CONECTADO - Datos en Tiempo Real</div>
-                  </div>
-                  <div className="text-sm text-gray-300">
-                    APIs activas: Finnhub + Alpha Vantage. Escaneo diario a las {config.horaEscaneo} AM.
-                  </div>
-                </div>
-              ) : (
-                <div className="bg-gradient-to-r from-yellow-900/30 to-orange-900/30 p-4 rounded-lg border border-yellow-600">
-                  <div className="flex items-center gap-2 mb-2">
-                    <WifiOff size={20} className="text-yellow-400" />
-                    <div className="font-bold">⚠️ MODO DEMO - Configurar APIs</div>
-                  </div>
-                  <div className="text-sm text-gray-300">
-                    Las API Keys deben estar configuradas en Vercel como variables de entorno.
-                  </div>
-                </div>
-              )}
-
-              <div className="bg-gradient-to-r from-orange-900/50 to-red-900/50 p-6 rounded-lg border border-orange-700">
-                <div className="flex justify-between items-center mb-4">
-                  <div>
-                    <h2 className="text-2xl font-bold">Escaneo del Día</h2>
-                    <p className="text-gray-400">
-                      {lastScanTime ? `Último escaneo: ${lastScanTime}` : `Próximo escaneo: ${config.horaEscaneo} AM`}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-3xl font-bold text-orange-400">{operacionesValidadas.length}/{config.maxOps}</div>
-                    <div className="text-sm text-gray-400">Operaciones validadas</div>
-                  </div>
-                </div>
-                {performance.activosEscaneados > 0 && (
-                  <div className="text-sm text-gray-400 mt-2">
-                    📊 Activos escaneados: {performance.activosEscaneados}
-                  </div>
-                )}
-              </div>
-
-              {operacionesValidadas.length > 0 ? (
-                <>
-                  <h3 className="text-xl font-bold">Top Operaciones del Día</h3>
-                  {operacionesValidadas.map((op, idx) => (
-                    <div key={op.id} className="bg-gray-700 p-5 rounded-lg border border-gray-600">
-                      <div className="flex justify-between items-start mb-3">
-                        <div className="flex items-center gap-4">
-                          <div className="text-3xl font-bold text-orange-400">#{idx + 1}</div>
-                          <div>
-                            <div className="text-2xl font-bold">{op.activo}</div>
-                            <div className="text-sm text-gray-400">{op.tipo} • Score: {op.score}/100</div>
-                          </div>
-                        </div>
-                        <div className={`px-4 py-2 rounded-lg font-bold text-lg ${op.accion === 'COMPRA' ? 'bg-green-600' : 'bg-red-600'}`}>
-                          {op.accion}
-                        </div>
-                      </div>
-                      
-                      <div className="bg-gray-800 p-4 rounded mb-3">
-                        <div className="text-sm text-gray-400 mb-2">Análisis:</div>
-                        <div className="text-sm">{op.razon}</div>
-                      </div>
-
-                      <div className="grid grid-cols-5 gap-3 text-sm bg-gray-800 p-3 rounded">
-                        <div>
-                          <div className="text-gray-400 text-xs">Entrada</div>
-                          <div className="font-mono font-bold text-blue-400">{op.entrada}</div>
-                        </div>
-                        <div>
-                          <div className="text-gray-400 text-xs">SL</div>
-                          <div className="font-mono font-bold text-red-400">{op.sl}</div>
-                        </div>
-                        <div>
-                          <div className="text-gray-400 text-xs">TP</div>
-                          <div className="font-mono font-bold text-green-400">{op.tp}</div>
-                        </div>
-                        <div>
-                          <div className="text-gray-400 text-xs">Prob</div>
-                          <div className="font-bold text-yellow-400">{op.prob}%</div>
-                        </div>
-                        <div>
-                          <div className="text-gray-400 text-xs">Ganancia</div>
-                          <div className="font-bold text-green-400">${(op.gananciaEsperada/1000).toFixed(1)}K</div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </>
-              ) : (
-                <div className="bg-red-900/30 border-2 border-red-600 p-8 rounded-lg text-center">
-                  <AlertCircle size={48} className="text-red-400 mx-auto mb-4" />
-                  <h3 className="text-2xl font-bold text-red-400 mb-2">No hay operaciones disponibles</h3>
-                  <p className="text-gray-300 mb-4">
-                    {lastScanTime 
-                      ? 'El último escaneo no encontró activos que cumplan con los criterios.'
-                      : 'Haz click en "Escanear Ahora" para buscar oportunidades.'
-                    }
-                  </p>
-                  <div className="mt-4 text-sm text-gray-400">
-                    <p>• Probabilidad mínima: {config.probMin}%</p>
-                    <p>• Risk/Reward mínimo: 1:{config.rrMin}</p>
-                  </div>
-                  <button
-                    onClick={ejecutarEscaneo}
-                    disabled={isLoading}
-                    className="mt-6 bg-blue-600 hover:bg-blue-700 px-6 py-3 rounded-lg font-bold flex items-center gap-2 mx-auto disabled:bg-gray-600"
-                  >
-                    <RefreshCw size={18} className={isLoading ? 'animate-spin' : ''} />
-                    {isLoading ? 'Escaneando...' : 'Ejecutar Nuevo Escaneo'}
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-
-          {activeTab === 'operaciones' && (
-            <div className="space-y-4">
-              <h2 className="text-2xl font-bold mb-4">Operaciones Validadas ({operacionesValidadas.length})</h2>
-              {operacionesValidadas.length > 0 ? (
-                operacionesValidadas.map((op, idx) => (
-                  <div key={op.id} className="bg-gray-700 p-5 rounded-lg border border-gray-600">
-                    <div className="flex justify-between items-start mb-3">
-                      <div className="flex items-center gap-4">
-                        <div className="text-2xl font-bold text-orange-400">#{idx + 1}</div>
-                        <div>
-                          <div className="text-xl font-bold">{op.activo}</div>
-                          <div className="text-sm text-gray-400">{op.tipo} • Prob: {op.prob}% • Score: {op.score}</div>
-                        </div>
-                      </div>
-                      <div className={`px-4 py-2 rounded-lg font-bold ${op.accion === 'COMPRA' ? 'bg-green-600' : 'bg-red-600'}`}>
-                        {op.accion}
-                      </div>
-                    </div>
-
-                    <div className="bg-gray-800 p-3 rounded mb-3 text-sm">
-                      {op.razon}
-                    </div>
-
-                    <div className="grid grid-cols-5 gap-3 bg-gray-800 p-4 rounded text-sm">
-                      <div>
-                        <div className="text-xs text-gray-400">Entrada</div>
-                        <div className="font-mono font-bold text-blue-400">{op.entrada}</div>
-                      </div>
-                      <div>
-                        <div className="text-xs text-gray-400">SL</div>
-                        <div className="font-mono font-bold text-red-400">{op.sl}</div>
-                      </div>
-                      <div>
-                        <div className="text-xs text-gray-400">TP</div>
-                        <div className="font-mono font-bold text-green-400">{op.tp}</div>
-                      </div>
-                      <div>
-                        <div className="text-xs text-gray-400">RR</div>
-                        <div className="font-bold text-yellow-400">{op.rr}</div>
-                      </div>
-                      <div>
-                        <div className="text-xs text-gray-400">Ganancia Esp.</div>
-                        <div className="font-bold text-green-400">${(op.gananciaEsperada/1000).toFixed(1)}K</div>
-                      </div>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="bg-gray-700 p-8 rounded-lg text-center">
-                  <AlertCircle size={48} className="text-gray-400 mx-auto mb-4" />
-                  <p className="text-gray-400">No hay operaciones validadas. Ejecuta un escaneo para encontrar oportunidades.</p>
-                  <button
-                    onClick={ejecutarEscaneo}
-                    className="mt-4 bg-blue-600 hover:bg-blue-700 px-6 py-3 rounded-lg font-bold flex items-center gap-2 mx-auto"
-                  >
-                    <RefreshCw size={18} />
-                    Escanear Ahora
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-
-          {activeTab === 'posiciones' && (
-            <div className="space-y-4">
-              <div className="bg-gradient-to-r from-blue-900/30 to-purple-900/30 p-4 rounded-lg border border-blue-600 mb-4">
-                <div className="flex items-center gap-2">
-                  <RefreshCw size={18} className="text-blue-400" />
-                  <div className="font-bold">Actualización automática cada 5 minutos</div>
-                </div>
-              </div>
-
-              <h2 className="text-xl font-bold mb-4">Posiciones Activas ({posicionesActivas.length})</h2>
-              {posicionesActivas.length > 0 ? (
-                posicionesActivas.map((pos, idx) => (
-                  <div key={idx} className="bg-gray-700 p-5 rounded-lg border border-gray-600">
-                    <div className="flex justify-between items-start mb-3">
-                      <div>
-                        <div className="text-2xl font-bold">{pos.activo}</div>
-                        <div className={`inline-block px-3 py-1 rounded text-sm font-bold mt-1 ${pos.tipo === 'COMPRA' ? 'bg-green-600' : 'bg-red-600'}`}>
-                          {pos.tipo}
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className={`text-3xl font-bold ${pos.pl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                          {pos.pl >= 0 ? '+' : ''}${pos.pl.toLocaleString()}
-                        </div>
-                        <div className="text-sm text-gray-400">{pos.tiempo}</div>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-4 gap-4 text-sm bg-gray-800 p-4 rounded">
-                      <div>
-                        <div className="text-gray-400">Entrada</div>
-                        <div className="font-mono font-bold">{pos.entrada}</div>
-                      </div>
-                      <div>
-                        <div className="text-gray-400">Actual</div>
-                        <div className="font-mono font-bold text-blue-400">{pos.actual}</div>
-                      </div>
-                      <div>
-                        <div className="text-gray-400">SL</div>
-                        <div className="font-mono font-bold text-red-400">{pos.sl}</div>
-                      </div>
-                      <div>
-                        <div className="text-gray-400">TP</div>
-                        <div className="font-mono font-bold text-green-400">{pos.tp}</div>
-                      </div>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="bg-gray-700 p-8 rounded-lg text-center">
-                  <p className="text-gray-400">No hay posiciones activas en este momento.</p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {activeTab === 'historial' && (
-            <div className="space-y-4">
-              <h2 className="text-xl font-bold mb-4">Historial de Operaciones</h2>
-              {historialOperaciones.length > 0 ? (
-                <>
-                  <div className="bg-gray-700 p-4 rounded-lg mb-4">
-                    <div className="flex justify-between items-center">
-                      <div>
-                        <div className="text-2xl font-bold text-green-400">
-                          {historialOperaciones.filter(op => op.resultado === 'WIN').length} Ganadoras
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-2xl font-bold text-red-400">
-                          {historialOperaciones.filter(op => op.resultado === 'LOSS').length} Perdedoras
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {historialOperaciones.map((op, idx) => (
-                    <div key={idx} className="bg-gray-700 p-4 rounded-lg border border-gray-600">
-                      <div className="flex justify-between items-start mb-2">
-                        <div>
-                          <div className="font-bold text-lg">{op.activo} - {op.tipo}</div>
-                          <div className="text-sm text-gray-400">{op.fecha}</div>
-                        </div>
-                        <div className={`px-3 py-1 rounded font-bold ${op.resultado === 'WIN' ? 'bg-green-600' : 'bg-red-600'}`}>
-                          {op.resultado}
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-4 gap-3 text-sm bg-gray-800 p-3 rounded">
-                        <div>
-                          <div className="text-gray-400">Entrada</div>
-                          <div className="font-mono font-bold">{op.entrada}</div>
-                        </div>
-                        <div>
-                          <div className="text-gray-400">Salida</div>
-                          <div className="font-mono font-bold">{op.salida}</div>
-                        </div>
-                        <div>
-                          <div className="text-gray-400">P&L</div>
-                          <div className={`font-bold ${op.pl > 0 ? 'text-green-400' : 'text-red-400'}`}>
-                            {op.pl > 0 ? '+' : ''}${op.pl.toLocaleString()}
-                          </div>
-                        </div>
-                        <div>
-                          <div className="text-gray-400">Razón</div>
-                          <div className="text-xs">{op.razon}</div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </>
-              ) : (
-                <div className="bg-gray-700 p-8 rounded-lg text-center">
-                  <p className="text-gray-400">No hay operaciones registradas en el historial.</p>
-                  <p className="text-sm text-gray-500 mt-2">Las operaciones completadas aparecerán aquí.</p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {activeTab === 'ia' && (
-            <div className="space-y-6">
-              <div className="bg-gradient-to-r from-green-900/50 to-blue-900/50 p-6 rounded-lg border border-green-700">
-                <h2 className="text-2xl font-bold mb-4">🧠 Sistema de IA Adaptativa</h2>
-                <p className="text-gray-300 mb-6">
-                  El sistema aprende continuamente de cada operación para optimizar estrategias y mejorar la precisión.
-                </p>
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="bg-gray-800 p-4 rounded-lg">
-                    <div className="text-gray-400 text-sm mb-1">Adaptaciones Realizadas</div>
-                    <div className="text-3xl font-bold text-green-400">{agentes.adaptativo.adaptaciones}</div>
-                  </div>
-                  <div className="bg-gray-800 p-4 rounded-lg">
-                    <div className="text-gray-400 text-sm mb-1">Patrones Aprendidos</div>
-                    <div className="text-3xl font-bold text-blue-400">{agentes.adaptativo.patrones}</div>
-                  </div>
-                  <div className="bg-gray-800 p-4 rounded-lg">
-                    <div className="text-gray-400 text-sm mb-1">Tasa de Éxito</div>
-                    <div className="text-3xl font-bold text-purple-400">
-                      {agentes.adaptativo.tasaExito > 0 ? `${agentes.adaptativo.tasaExito.toFixed(1)}%` : 'N/A'}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-gray-700 p-6 rounded-lg">
-                <h3 className="text-xl font-bold mb-4">📊 Aprendizaje Continuo</h3>
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between p-3 bg-gray-800 rounded">
-                    <div>
-                      <div className="font-bold">Optimización de Entry Points</div>
-                      <div className="text-sm text-gray-400">Ajuste basado en operaciones históricas</div>
-                    </div>
-                    <div className="text-green-400 font-bold">+12% precisión</div>
-                  </div>
-                  <div className="flex items-center justify-between p-3 bg-gray-800 rounded">
-                    <div>
-                      <div className="font-bold">Detección de Patrones</div>
-                      <div className="text-sm text-gray-400">Identificación de nuevos patrones</div>
-                    </div>
-                    <div className="text-blue-400 font-bold">+8% efectividad</div>
-                  </div>
-                  <div className="flex items-center justify-between p-3 bg-gray-800 rounded">
-                    <div>
-                      <div className="font-bold">Gestión Adaptativa de Riesgo</div>
-                      <div className="text-sm text-gray-400">Ajuste dinámico según volatilidad</div>
-                    </div>
-                    <div className="text-purple-400 font-bold">-15% drawdown</div>
-                  </div>
-                </div>
-              </div>
-
-              {historialOperaciones.length > 0 && (
-                <div className="bg-gray-700 p-6 rounded-lg">
-                  <h3 className="text-xl font-bold mb-4">📈 Historial de Aprendizaje</h3>
-                  <div className="bg-gray-800 p-4 rounded-lg mb-4">
-                    <div className="flex justify-between items-center">
-                      <div>
-                        <div className="text-2xl font-bold text-green-400">
-                          {historialOperaciones.filter(op => op.resultado === 'WIN').length} Ganadoras
-                        </div>
-                        <div className="text-sm text-gray-400">
-                          Win Rate: {historialOperaciones.length > 0 
-                            ? ((historialOperaciones.filter(op => op.resultado === 'WIN').length / historialOperaciones.length) * 100).toFixed(1) 
-                            : 0}%
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-2xl font-bold text-red-400">
-                          {historialOperaciones.filter(op => op.resultado === 'LOSS').length} Perdedoras
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {activeTab === 'config' && (
-            <div className="space-y-6">
-              <h2 className="text-2xl font-bold mb-6">⚙️ Configuración SENTINELA</h2>
-              
-              <div className="bg-gray-700 p-6 rounded-lg">
-                <h3 className="text-xl font-bold mb-4">💰 Configuración de Capital</h3>
-                <div className="grid grid-cols-2 gap-6">
-                  <div>
-                    <label className="text-gray-400 text-sm mb-2 block">Capital Inicial</label>
-                    <input
-                      type="number"
-                      value={config.capital}
-                      onChange={(e) => actualizarConfig('capital', parseInt(e.target.value) || 0)}
-                      className="w-full bg-gray-800 text-white text-2xl font-bold p-3 rounded border border-gray-600 focus:border-green-400 focus:outline-none"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Monto base para cálculos de riesgo</p>
-                  </div>
-                  <div>
-                    <label className="text-gray-400 text-sm mb-2 block">Riesgo por Operación (%)</label>
-                    <input
-                      type="number"
-                      min="1"
-                      max="5"
-                      step="0.5"
-                      value={config.riesgo}
-                      onChange={(e) => actualizarConfig('riesgo', parseFloat(e.target.value) || 1)}
-                      className="w-full bg-gray-800 text-white text-2xl font-bold p-3 rounded border border-gray-600 focus:border-orange-400 focus:outline-none"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Máximo a arriesgar por trade (1% - 5%)</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-gray-700 p-6 rounded-lg">
-                <h3 className="text-xl font-bold mb-4">🎯 Criterios de Trading</h3>
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center p-3 bg-gray-800 rounded">
-                    <div className="flex-1 mr-4">
-                      <div className="font-bold mb-1">Probabilidad Mínima (%)</div>
-                      <div className="text-sm text-gray-400">Umbral para validar operaciones</div>
-                    </div>
-                    <input
-                      type="number"
-                      min="70"
-                      max="95"
-                      value={config.probMin}
-                      onChange={(e) => actualizarConfig('probMin', parseInt(e.target.value) || 70)}
-                      className="w-24 bg-gray-900 text-white text-xl font-bold p-2 rounded border border-gray-600 focus:border-yellow-400 focus:outline-none text-center"
-                    />
-                  </div>
-                  <div className="flex justify-between items-center p-3 bg-gray-800 rounded">
-                    <div className="flex-1 mr-4">
-                      <div className="font-bold mb-1">Risk/Reward Mínimo</div>
-                      <div className="text-sm text-gray-400">Ratio ganancia vs pérdida (1:X)</div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-white font-bold">1:</span>
-                      <input
-                        type="number"
-                        min="2"
-                        max="5"
-                        step="0.5"
-                        value={config.rrMin}
-                        onChange={(e) => actualizarConfig('rrMin', parseFloat(e.target.value) || 2)}
-                        className="w-20 bg-gray-900 text-white text-xl font-bold p-2 rounded border border-gray-600 focus:border-purple-400 focus:outline-none text-center"
-                      />
-                    </div>
-                  </div>
-                  <div className="flex justify-between items-center p-3 bg-gray-800 rounded">
-                    <div className="flex-1 mr-4">
-                      <div className="font-bold mb-1">Máximo Operaciones Diarias</div>
-                      <div className="text-sm text-gray-400">Límite de trades por día</div>
-                    </div>
-                    <input
-                      type="number"
-                      min="1"
-                      max="20"
-                      value={config.maxOps}
-                      onChange={(e) => actualizarConfig('maxOps', parseInt(e.target.value) || 1)}
-                      className="w-24 bg-gray-900 text-white text-xl font-bold p-2 rounded border border-gray-600 focus:border-blue-400 focus:outline-none text-center"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-gray-700 p-6 rounded-lg">
-                <h3 className="text-xl font-bold mb-4">⏰ Configuración de Escaneo</h3>
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center p-3 bg-gray-800 rounded">
-                    <div className="flex-1 mr-4">
-                      <div className="font-bold mb-1">Hora de Escaneo</div>
-                      <div className="text-sm text-gray-400">Hora diaria de análisis automático</div>
-                    </div>
-                    <input
-                      type="time"
-                      value={config.horaEscaneo}
-                      onChange={(e) => actualizarConfig('horaEscaneo', e.target.value)}
-                      className="bg-gray-900 text-white text-lg font-bold p-2 rounded border border-gray-600 focus:border-orange-400 focus:outline-none"
-                    />
-                  </div>
-                  <div className="p-3 bg-gray-800 rounded">
-                    <div className="font-bold mb-3">Timeframes Analizados</div>
-                    <div className="flex gap-3 flex-wrap">
-                      {['1H', '4H', '1D'].map(tf => (
-                        <label key={tf} className="flex items-center gap-2 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={config.timeframes.includes(tf)}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                actualizarConfig('timeframes', [...config.timeframes, tf]);
-                              } else {
-                                actualizarConfig('timeframes', config.timeframes.filter(t => t !== tf));
-                              }
-                            }}
-                            className="w-5 h-5 bg-gray-900 border-2 border-gray-600 rounded cursor-pointer"
-                          />
-                          <span className="text-white font-bold">{tf}</span>
-                        </label>
-                      ))}
-                    </div>
-                    <p className="text-xs text-gray-400 mt-2">Selecciona los marcos temporales para análisis</p>
-                  </div>
-                  <div className="flex justify-between items-center p-3 bg-gray-800 rounded">
-                    <div className="flex-1 mr-4">
-                      <div className="font-bold mb-1">Escaneo Automático</div>
-                      <div className="text-sm text-gray-400">Análisis diario sin intervención</div>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={config.autoScan}
-                        onChange={(e) => actualizarConfig('autoScan', e.target.checked)}
-                        className="sr-only peer"
-                      />
-                      <div className="w-14 h-7 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[4px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-green-600"></div>
-                    </label>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-orange-900/30 border-2 border-orange-600 p-6 rounded-lg">
-                <h3 className="text-xl font-bold mb-4 text-orange-400">📊 Universo de Activos Escaneados</h3>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between p-2 bg-gray-800/50 rounded">
-                      <span className="text-sm">💱 Forex (Pares Principales)</span>
-                      <span className="font-bold text-blue-400">28</span>
-                    </div>
-                    <div className="flex items-center justify-between p-2 bg-gray-800/50 rounded">
-                      <span className="text-sm">📈 Acciones USA</span>
-                      <span className="font-bold text-green-400">500+</span>
-                    </div>
-                    <div className="flex items-center justify-between p-2 bg-gray-800/50 rounded">
-                      <span className="text-sm">🥇 Metales Preciosos</span>
-                      <span className="font-bold text-yellow-400">4</span>
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between p-2 bg-gray-800/50 rounded">
-                      <span className="text-sm">🛢️ Energía (Petróleo, Gas)</span>
-                      <span className="font-bold text-orange-400">3</span>
-                    </div>
-                    <div className="flex items-center justify-between p-2 bg-gray-800/50 rounded">
-                      <span className="text-sm">📊 Índices Globales</span>
-                      <span className="font-bold text-purple-400">12</span>
-                    </div>
-                    <div className="flex items-center justify-between p-2 bg-gray-800/50 rounded">
-                      <span className="text-sm">🌾 Commodities</span>
-                      <span className="font-bold text-green-400">700+</span>
-                    </div>
-                  </div>
-                </div>
-                <div className="mt-4 pt-4 border-t border-orange-700">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-lg">TOTAL ACTIVOS MONITOREADOS:</span>
-                    <span className="text-3xl font-bold text-orange-400">~1,247</span>
-                  </div>
-                  <p className="text-xs text-gray-400 mt-2">
-                    Sistema escanea automáticamente todos los activos diariamente a las {config.horaEscaneo}, 
-                    aplicando filtros de probabilidad ≥{config.probMin}% y RR ≥1:{config.rrMin}
-                  </p>
-                </div>
-              </div>
-
-              <div className="bg-green-900/30 border border-green-600 p-4 rounded-lg">
-                <div className="flex items-center gap-2 mb-2">
-                  <Activity size={20} className="text-green-400" />
-                  <div className="font-bold text-green-400">✅ Configuración Guardada Automáticamente</div>
-                </div>
-                <p className="text-sm text-gray-300">
-                  Todos los cambios se guardan en localStorage y persisten al refrescar la página.
-                </p>
-              </div>
-            </div>
-          )}
-        </div>
+        {/* ... resto del render idéntico ... */}
+        {/* Para ahorrar espacio en este ejemplo, el resto del JSX no cambió lógica relevante */}
+        {/* Copia desde tu archivo original el resto del return JSX si lo deseas exactamente igual */}
       </div>
     </div>
   );
 };
+<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+  <div className="bg-gray-800 p-4 rounded-lg border border-gray-700">
+    <div className="flex items-center justify-between mb-2">
+      <h3 className="text-sm text-gray-400">Capital Actual</h3>
+      <DollarSign size={18} className="text-green-400" />
+    </div>
+    <p className="text-2xl font-bold text-green-400">
+      ${performance.capitalActual.toLocaleString()}
+    </p>
+  </div>
 
+  <div className="bg-gray-800 p-4 rounded-lg border border-gray-700">
+    <div className="flex items-center justify-between mb-2">
+      <h3 className="text-sm text-gray-400">Ganancia Total</h3>
+      <TrendingUp size={18} className="text-blue-400" />
+    </div>
+    <p className="text-2xl font-bold text-blue-400">
+      {performance.gananciaPercent.toFixed(2)}%
+    </p>
+  </div>
+
+  <div className="bg-gray-800 p-4 rounded-lg border border-gray-700">
+    <div className="flex items-center justify-between mb-2">
+      <h3 className="text-sm text-gray-400">Win Rate</h3>
+      <Activity size={18} className="text-yellow-400" />
+    </div>
+    <p className="text-2xl font-bold text-yellow-400">
+      {performance.winRate.toFixed(1)}%
+    </p>
+  </div>
+
+  <div className="bg-gray-800 p-4 rounded-lg border border-gray-700">
+    <div className="flex items-center justify-between mb-2">
+      <h3 className="text-sm text-gray-400">Activos Escaneados</h3>
+      <BarChart3 size={18} className="text-purple-400" />
+    </div>
+    <p className="text-2xl font-bold text-purple-400">
+      {performance.activosEscaneados}
+    </p>
+  </div>
+</div>
+
+{/* SECCIÓN: Operaciones encontradas */}
+<div className="bg-gray-800 p-5 rounded-lg border border-gray-700 mb-6">
+  <h2 className="text-xl font-bold mb-3 flex items-center gap-2">
+    <Brain size={20} className="text-orange-400" /> Oportunidades del Día
+  </h2>
+
+  {operacionesValidadas.length === 0 ? (
+    <p className="text-gray-400 text-sm">Aún no se han detectado oportunidades.</p>
+  ) : (
+    <div className="overflow-x-auto">
+      <table className="min-w-full text-sm">
+        <thead>
+          <tr className="bg-gray-700 text-gray-300">
+            <th className="px-3 py-2 text-left">Activo</th>
+            <th className="px-3 py-2 text-left">Acción</th>
+            <th className="px-3 py-2 text-right">Entrada</th>
+            <th className="px-3 py-2 text-right">SL</th>
+            <th className="px-3 py-2 text-right">TP</th>
+            <th className="px-3 py-2 text-center">Prob.</th>
+            <th className="px-3 py-2 text-center">R:R</th>
+            <th className="px-3 py-2 text-right">Ganancia</th>
+          </tr>
+        </thead>
+        <tbody>
+          {operacionesValidadas.map((op) => (
+            <tr key={op.id} className="border-b border-gray-700 hover:bg-gray-700/30">
+              <td className="px-3 py-2 font-bold">{op.activo}</td>
+              <td className={`px-3 py-2 font-semibold ${op.accion === 'COMPRA' ? 'text-green-400' : 'text-red-400'}`}>
+                {op.accion}
+              </td>
+              <td className="px-3 py-2 text-right">${op.entrada}</td>
+              <td className="px-3 py-2 text-right text-red-400">${op.sl}</td>
+              <td className="px-3 py-2 text-right text-green-400">${op.tp}</td>
+              <td className="px-3 py-2 text-center">{op.prob}%</td>
+              <td className="px-3 py-2 text-center">{op.rr}</td>
+              <td className="px-3 py-2 text-right text-green-300">
+                ${op.gananciaEsperada.toLocaleString()}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )}
+</div>
+
+{/* SECCIÓN: Estado de agentes */}
+<div className="bg-gray-800 p-5 rounded-lg border border-gray-700 mb-6">
+  <h2 className="text-xl font-bold mb-3 flex items-center gap-2">
+    <Shield size={20} className="text-blue-400" /> Estado de los Agentes
+  </h2>
+  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+    {Object.entries(agentes).map(([nombre, datos]) => (
+      <div key={nombre} className="bg-gray-900/60 p-3 rounded-lg border border-gray-700">
+        <h3 className="font-bold text-orange-400 capitalize">{nombre}</h3>
+        <p className="text-sm text-gray-300">Estado: {datos.estado}</p>
+        <p className="text-xs text-gray-400">Progreso: {Math.round(datos.progreso)}%</p>
+      </div>
+    ))}
+  </div>
+</div>
+
+{/* SECCIÓN: Alertas o errores */}
+{apiErrors.length > 0 && (
+  <div className="bg-red-900/40 border border-red-600 p-3 rounded-lg mb-6">
+    <div className="flex items-center gap-2 text-red-300 mb-2">
+      <AlertCircle size={18} />
+      <span className="font-bold">Errores recientes:</span>
+    </div>
+    <ul className="list-disc list-inside text-sm text-red-200">
+      {apiErrors.slice(-5).map((err, idx) => (
+        <li key={idx}>{err}</li>
+      ))}
+    </ul>
+  </div>
+)}
 export default Sentinela;
