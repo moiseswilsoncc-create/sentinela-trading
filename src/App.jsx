@@ -80,7 +80,89 @@ const Sentinela = () => {
     }
   }, []);
 
-  // Obtener precio real desde Finnhub
+ // Obtener precio real - Forex desde Alpha Vantage, Acciones desde Finnhub
+  const obtenerPrecioReal = async (simbolo) => {
+    // Si es Forex, usar Alpha Vantage
+    if (simbolo.includes('USD')) {
+      return await obtenerPrecioForex(simbolo);
+    }
+    
+    // Si es acción, usar Finnhub
+    const finnhubKey = import.meta.env.VITE_FINNHUB_API_KEY;
+    if (!finnhubKey) {
+      console.error('❌ Finnhub API Key no encontrada');
+      return null;
+    }
+
+    try {
+      console.log(`📊 Obteniendo precio de ${simbolo} desde Finnhub...`);
+      
+      const response = await fetch(`https://finnhub.io/api/v1/quote?symbol=${simbolo}&token=${finnhubKey}`);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data.c && data.c > 0) {
+        console.log(`✅ ${simbolo}: $${data.c}`);
+        return data.c;
+      } else {
+        console.warn(`⚠️ ${simbolo}: Sin datos válidos`, data);
+        return null;
+      }
+    } catch (error) {
+      console.error(`❌ Error obteniendo ${simbolo}:`, error);
+      setApiErrors(prev => [...prev, `${simbolo}: ${error.message}`]);
+      return null;
+    }
+  };
+
+  // Nueva función para obtener Forex desde Alpha Vantage
+  const obtenerPrecioForex = async (simbolo) => {
+    const alphaKey = import.meta.env.VITE_ALPHA_VANTAGE_API_KEY;
+    if (!alphaKey) {
+      console.error('❌ Alpha Vantage API Key no encontrada');
+      return null;
+    }
+
+    try {
+      // Convertir formato: EURUSD -> EUR/USD
+      const from = simbolo.substring(0, 3);
+      const to = simbolo.substring(3, 6);
+      
+      console.log(`💱 Obteniendo precio de ${simbolo} (${from}/${to}) desde Alpha Vantage...`);
+      
+      const response = await fetch(
+        `https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency=${from}&to_currency=${to}&apikey=${alphaKey}`
+      );
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data['Realtime Currency Exchange Rate']) {
+        const precio = parseFloat(data['Realtime Currency Exchange Rate']['5. Exchange Rate']);
+        console.log(`✅ ${simbolo}: ${precio.toFixed(5)}`);
+        return precio;
+      } else if (data['Note']) {
+        // Límite de API alcanzado
+        console.warn(`⚠️ ${simbolo}: Límite de API alcanzado`);
+        setApiErrors(prev => [...prev, `${simbolo}: Límite de Alpha Vantage (5 llamadas/min)`]);
+        return null;
+      } else {
+        console.warn(`⚠️ ${simbolo}: Sin datos válidos`, data);
+        return null;
+      }
+    } catch (error) {
+      console.error(`❌ Error obteniendo ${simbolo}:`, error);
+      setApiErrors(prev => [...prev, `${simbolo}: ${error.message}`]);
+      return null;
+    }
+  };
   const obtenerPrecioReal = async (simbolo) => {
     const finnhubKey = import.meta.env.VITE_FINNHUB_API_KEY;
     if (!finnhubKey) {
